@@ -1,24 +1,26 @@
 import sqlite3
-import pandas as pd
 
-# connect local database file
+# create 'telemetry_analytics.db' 
 conn = sqlite3.connect('telemetry_analytics.db')
 cursor = conn.cursor()
 
-# enforce foreign keys
+# enable Foreign Key enforcement 
 cursor.execute("PRAGMA foreign_keys = ON;")
 
-# define Schema
+# build schema
 cursor.executescript("""
+-- Drop old tables if re-running
 DROP TABLE IF EXISTS fact_daily_activity;
 DROP TABLE IF EXISTS dim_users;
 
+-- 1. Create Dimension Table
 CREATE TABLE dim_users (
     user_id TEXT PRIMARY KEY,
     signup_date DATE NOT NULL,
     user_persona TEXT NOT NULL
 );
 
+-- 2. Create Fact Table with Foreign Key
 CREATE TABLE fact_daily_activity (
     activity_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -29,15 +31,12 @@ CREATE TABLE fact_daily_activity (
     sync_flag INTEGER NOT NULL,
     FOREIGN KEY (user_id) REFERENCES dim_users(user_id)
 );
-
-CREATE INDEX idx_activity_lookup ON fact_daily_activity(user_id, activity_date);
-CREATE INDEX idx_activity_sync ON fact_daily_activity(sync_flag, activity_date);
 """)
-
-# insert DataFrames generated in generate_data.py
-# dim_users.to_sql('dim_users', conn, if_exists='append', index=False)
-# fact_daily_activity.to_sql('fact_daily_activity', conn, if_exists='append', index=False)
-
 conn.commit()
-conn.close()
-print("Database initialized and loaded successfully.")
+
+dim_users.to_sql(
+    name='dim_users',
+    con=conn,
+    if_exists='append',  # Appends to the table we created above
+    index=False          # Don't write pandas row index (0, 1, 2...) as a column
+)
