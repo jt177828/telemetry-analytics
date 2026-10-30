@@ -1,12 +1,10 @@
-import sqlite3
+import os
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 
-# set fixed random sequence, for reproducibility
 np.random.seed(42)
 
-# constants
 NUM_USERS = 2500
 START_DATE = datetime(2025, 1, 1)
 END_DATE = datetime(2026, 1, 1)
@@ -17,18 +15,9 @@ PERSONAS = {
     'At-Risk': {'weight': 0.25, 'step_mean': 4500, 'step_std': 1500, 'decay_lambda': 0.0090, 'base_p': 0.70}
 }
 
-# base_p: likelihood that an individual user will actually wear the device and use the app on the initial day
-'''
-power users: 20% of population, mean of 11500 daily steps, initial sync probability of 0.98
-regular users: 55% of population, mean of 7500 daily steps, initial sync probability of 0.88
-at-risk users: 25% of population, mean of 4500 daily steps, initial sync probability of 0.70
-
-'''
-DEVICE_MODELS = ['PulseFit Pro', 'VeloSync 2', 'AuraBand Slim', 'Apex SmartTrack']
-
-# generate dimension table
-persona_keys = list(PERSONAS.keys()) # ['Power', 'Regular', 'At-risk']
-persona_probs = [PERSONAS[p]['weight'] for p in persona_keys] # ['0.20, 0.55, 0.25]
+# 1. Generate dim_users
+persona_keys = list(PERSONAS.keys())
+persona_probs = [PERSONAS[p]['weight'] for p in persona_keys]
 user_ids = [f"USR_{i:05d}" for i in range(1, NUM_USERS + 1)]
 user_personas = np.random.choice(persona_keys, size=NUM_USERS, p=persona_probs)
 
@@ -37,11 +26,11 @@ signup_dates = [START_DATE + timedelta(days=int(offset)) for offset in signup_of
 
 dim_users = pd.DataFrame({
     'user_id': user_ids,
-    'signup_date': signup_dates,
+    'signup_date': [d.strftime('%Y-%m-%d') for d in signup_dates],
     'user_persona': user_personas
 })
 
-# generate fact table
+# 2. Generate fact_daily_activity
 records = []
 for _, user in dim_users.iterrows():
     u_id = user['user_id']
@@ -55,12 +44,10 @@ for _, user in dim_users.iterrows():
         continue
 
     tenures = np.arange(days_active)
-
     decay_probs = p_meta['base_p'] * np.exp(-p_meta['decay_lambda'] * tenures)
     decay_probs = np.clip(decay_probs, 0.05, 0.99)
     synced = np.random.rand(days_active) < decay_probs
 
-    # day-level telemetry and weekend seasonality
     for t_idx, did_sync in enumerate(synced):
         curr_date = u_signup + timedelta(days=int(t_idx))
         is_weekend = curr_date.weekday() >= 5
@@ -77,13 +64,18 @@ for _, user in dim_users.iterrows():
             sleep_mins = 0
             sync_flag = 0
 
-        records.append((u_id, curr_date, steps, active_mins, sleep_mins, sync_flag))
+        records.append((u_id, curr_date.strftime('%Y-%m-%d'), steps, active_mins, sleep_mins, sync_flag))
 
 fact_daily_activity = pd.DataFrame(
     records, 
     columns=['user_id', 'activity_date', 'steps', 'active_minutes', 'sleep_minutes', 'sync_flag']
 )
 
-print(fact_daily_activity)
-print(f"Generated {len(dim_users):,} users and {len(fact_daily_activity):,} activity logs.")
+# 3. Export to CSV files
+os.makedirs("data", exist_ok=True)
+dim_users.to_csv("data/dim_users.csv", index=False)
+fact_daily_activity.to_csv("data/fact_daily_activity.csv", index=False)
 
+print(f"CSVs generated in data/ folder:")
+print(f" - dim_users.csv: {len(dim_users):,} rows")
+print(f" - fact_daily_activity.csv: {len(fact_daily_activity):,} rows")
